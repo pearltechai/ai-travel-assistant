@@ -1,36 +1,66 @@
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
 import { fromByteArray } from 'base64-js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
-function getApiKey(): string {
+function getOpenAIApiKey(): string {
   const key = (Constants?.expoConfig?.extra as any)?.openaiApiKey || (Constants as any)?.manifest?.extra?.openaiApiKey;
   if (!key) throw new Error('Missing OPENAI_API_KEY');
   return key;
 }
 
+function getGeminiApiKey(): string {
+  const key = (Constants?.expoConfig?.extra as any)?.geminiApiKey || (Constants as any)?.manifest?.extra?.geminiApiKey;
+  if (!key) throw new Error('Missing GEMINI_API_KEY');
+  return key;
+}
+
 export async function chatCompletion(messages: ChatMessage[]): Promise<string> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getApiKey()}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages,
-      temperature: 0.7,
-    }),
-  });
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`OpenAI Chat error: ${response.status} ${errText}`);
+  const genAI = new GoogleGenerativeAI(getGeminiApiKey());
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+
+  // Convert OpenAI format messages to Gemini format
+  const history: any[] = [];
+  const parts: any[] = [];
+  
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    
+    if (message.role === 'system') {
+      // Add system message as part of the first user message or as context
+      parts.push({ text: `System: ${message.content}` });
+    } else if (message.role === 'user') {
+      if (i === messages.length - 1) {
+        // Last message should be the current prompt
+        parts.push({ text: message.content });
+      } else {
+        // Add to history
+        history.push({
+          role: 'user',
+          parts: [{ text: message.content }]
+        });
+      }
+    } else if (message.role === 'assistant') {
+      history.push({
+        role: 'model',
+        parts: [{ text: message.content }]
+      });
+    }
   }
-  const data = await response.json();
-  const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error('No content');
-  return text;
+
+  try {
+    const chat = model.startChat({ history });
+    const result = await chat.sendMessage(parts);
+    const response = await result.response;
+    const text = response.text();
+    
+    if (!text) throw new Error('No content from Gemini');
+    return text.trim();
+  } catch (error: any) {
+    throw new Error(`Gemini Chat error: ${error.message}`);
+  }
 }
 
 export async function ttsToMp3(text: string, voice: 'alloy' | 'nova' = 'nova'): Promise<string> {
@@ -38,7 +68,7 @@ export async function ttsToMp3(text: string, voice: 'alloy' | 'nova' = 'nova'): 
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getApiKey()}`,
+      Authorization: `Bearer ${getOpenAIApiKey()}`,
     },
     body: JSON.stringify({ model: 'tts-1', voice, input: text, response_format: 'mp3' }),
   });
@@ -69,7 +99,7 @@ export async function transcribeAudio(fileUri: string): Promise<string> {
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${getApiKey()}`,
+      Authorization: `Bearer ${getOpenAIApiKey()}`,
     },
     body: form as any,
   });

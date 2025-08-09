@@ -38,6 +38,7 @@ module.exports = {
     },
     extra: {
       openaiApiKey: process.env.OPENAI_API_KEY || null,
+      geminiApiKey: process.env.GEMINI_API_KEY || null,
       // Make sure this is available in EAS as well when building
     },
   },
