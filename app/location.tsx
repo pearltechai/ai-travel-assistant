@@ -12,12 +12,23 @@ import {
 
 type LocationInfo = { name: string; description: string };
 
-const SYSTEM_PROMPT = `You are a concise travel guide. Always respond in the user's language if possible. Stay on-topic for the given coordinates and location.
-For the first response, you must return STRICT JSON only in the following shape and nothing else:
+const INITIAL_SYSTEM_PROMPT = `You are an enthusiastic and knowledgeable travel guide. When given coordinates, you must respond with ONLY a JSON object in this exact format (no other text):
 {
   "name": "<short location name>",
-  "description": "<1-2 sentence interesting overview>"
+  "description": "<brief engaging introduction as a travel guide would give>"
 }`;
+
+const CONVERSATION_SYSTEM_PROMPT = `You are an enthusiastic and knowledgeable local travel guide. You have just introduced this location to a visitor and now you're continuing the conversation. 
+
+Guidelines:
+- Maintain the context of your previous introduction and any conversation history
+- Respond naturally as if you're physically there with the visitor
+- Share interesting facts, stories, tips, and local insights
+- Keep responses conversational and engaging (2-4 sentences typically)
+- Always respond in the user's language if possible
+- Stay focused on this specific location and related topics
+- Be helpful with practical advice when asked
+- Share your enthusiasm for the place`;
 
 export default function LocationScreen() {
   const router = useRouter();
@@ -28,7 +39,7 @@ export default function LocationScreen() {
   const [chatLoading, setChatLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isTalking, setIsTalking] = useState<boolean>(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([{ role: 'system', content: SYSTEM_PROMPT }]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -79,13 +90,22 @@ export default function LocationScreen() {
     setLoading(true);
     setError(null);
     try {
+      // First API call: Get location info as JSON
       const userMsg: ChatMessage = { role: 'user', content: `Coordinates: ${coords}` };
-      const text = await chatCompletion([ { role: 'system', content: SYSTEM_PROMPT }, userMsg ]);
+      const text = await chatCompletion([ { role: 'system', content: INITIAL_SYSTEM_PROMPT }, userMsg ]);
       const info = parseStrictJson(text);
       if (!info) throw new Error('Failed to parse location JSON');
       setTitle(info.name);
-      // Seed conversation: first assistant turn is the JSON (store description only for context)
-      setMessages([ { role: 'system', content: SYSTEM_PROMPT }, userMsg, { role: 'assistant', content: info.description } ]);
+      
+      // Initialize conversation with proper context for ongoing chat
+      const conversationMessages: ChatMessage[] = [
+        { role: 'system', content: CONVERSATION_SYSTEM_PROMPT },
+        { role: 'user', content: `Coordinates: ${coords}` },
+        { role: 'assistant', content: info.description }
+      ];
+      setMessages(conversationMessages);
+      
+      // Play the introduction
       const mp3 = await ttsToMp3(info.description, 'nova');
       await playMp3(mp3);
     } catch (e: any) {
