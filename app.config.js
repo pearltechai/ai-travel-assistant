@@ -19,6 +19,9 @@ module.exports = {
     },
     ios: {
       supportsTablet: true,
+      infoPlist: {
+        NSMicrophoneUsageDescription: 'This app uses the microphone to let you talk and get responses about the location.',
+      },
     },
     android: {
       adaptiveIcon: {
@@ -26,6 +29,9 @@ module.exports = {
         backgroundColor: '#ffffff',
       },
       edgeToEdgeEnabled: true,
+      permissions: [
+        'RECORD_AUDIO',
+      ],
     },
     web: {
       favicon: './assets/favicon.png',
