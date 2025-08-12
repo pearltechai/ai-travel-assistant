@@ -12,7 +12,45 @@ import {
 
 type LocationInfo = { name: string; description: string };
 
-const INITIAL_SYSTEM_PROMPT = `You are an enthusiastic and knowledgeable travel guide. When given coordinates, you must respond with ONLY a JSON object in this exact format (no other text):
+// Reverse geocode coordinates to a human-readable street address using Nominatim
+async function reverseGeocodeCoordinates(coordinatesCsv: string): Promise<string> {
+  const [latStr, lonStr] = coordinatesCsv.split(',').map(v => v.trim());
+  const latitude = Number(latStr);
+  const longitude = Number(lonStr);
+  const isValid = Number.isFinite(latitude) && Number.isFinite(longitude);
+  if (!isValid) return coordinatesCsv;
+
+  const url = `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&format=json&addressdetails=1&zoom=18`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        // Identify the app per Nominatim usage policy
+        'User-Agent': 'ai-travel-assistant/1.0 (reverse-geocoder)'
+      }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: any = await res.json();
+    const addr = data?.address ?? {};
+    const parts: string[] = [];
+    if (addr.house_number && addr.road) {
+      parts.push(`${addr.house_number} ${addr.road}`);
+    } else if (addr.road) {
+      parts.push(addr.road);
+    }
+    if (addr.neighbourhood) parts.push(addr.neighbourhood);
+    if (addr.suburb) parts.push(addr.suburb);
+    if (addr.city || addr.town || addr.village) parts.push(addr.city || addr.town || addr.village);
+    if (addr.state) parts.push(addr.state);
+    if (addr.postcode) parts.push(addr.postcode);
+    if (addr.country) parts.push(addr.country);
+    const composed = parts.filter(Boolean).join(', ');
+    return composed || data?.display_name || coordinatesCsv;
+  } catch {
+    return coordinatesCsv;
+  }
+}
+
+const INITIAL_SYSTEM_PROMPT = `You are an enthusiastic and knowledgeable travel guide. When given a precise street address, you must respond with ONLY a JSON object in this exact format (no other text):
 {
   "name": "<short location name>",
   "description": "<brief engaging introduction as a travel guide would give>"
@@ -90,8 +128,11 @@ export default function LocationScreen() {
     setLoading(true);
     setError(null);
     try {
-      // First API call: Get location info as JSON
-      const userMsg: ChatMessage = { role: 'user', content: `Coordinates: ${coords}` };
+      // Reverse geocode coordinates to a human-readable address
+      const address = await reverseGeocodeCoordinates(coords);
+
+      // First API call: Get location info as JSON based on address
+      const userMsg: ChatMessage = { role: 'user', content: `Address: ${address}` };
       const text = await chatCompletion([ { role: 'system', content: INITIAL_SYSTEM_PROMPT }, userMsg ]);
       const info = parseStrictJson(text);
       if (!info) throw new Error('Failed to parse location JSON');
@@ -100,7 +141,7 @@ export default function LocationScreen() {
       // Initialize conversation with proper context for ongoing chat
       const conversationMessages: ChatMessage[] = [
         { role: 'system', content: CONVERSATION_SYSTEM_PROMPT },
-        { role: 'user', content: `Coordinates: ${coords}` },
+        { role: 'user', content: `Location: ${address}` },
         { role: 'assistant', content: info.description }
       ];
       setMessages(conversationMessages);
